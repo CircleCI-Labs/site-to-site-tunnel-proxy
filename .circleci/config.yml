@@ -1,0 +1,69 @@
+version: 2.1
+
+executors:
+  go:
+    docker:
+      - image: cimg/go:1.26.1
+    resource_class: medium
+
+commands:
+  go-cache-restore:
+    steps:
+      - restore_cache:
+          keys:
+            - go-mod-{{ checksum "go.sum" }}
+  go-cache-save:
+    steps:
+      - save_cache:
+          key: go-mod-{{ checksum "go.sum" }}
+          paths:
+            - /home/circleci/go/pkg/mod
+
+jobs:
+  lint:
+    executor: go
+    steps:
+      - checkout
+      - go-cache-restore
+      - run:
+          name: Install golangci-lint
+          command: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+      - run:
+          name: Lint
+          command: ./do lint
+      - go-cache-save
+
+  test:
+    executor: go
+    steps:
+      - checkout
+      - go-cache-restore
+      - run:
+          name: Install gotestsum
+          command: go install gotest.tools/gotestsum@latest
+      - run:
+          name: Test
+          command: ./do test
+      - go-cache-save
+
+  build:
+    executor: go
+    steps:
+      - checkout
+      - go-cache-restore
+      - run:
+          name: Build all platforms
+          command: ./do build-all
+      - go-cache-save
+      - store_artifacts:
+          path: target/bin
+
+workflows:
+  build-and-test:
+    jobs:
+      - lint
+      - test
+      - build:
+          requires:
+            - lint
+            - test
