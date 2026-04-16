@@ -35,7 +35,7 @@ build-all() {
     for platform in "${platforms[@]}"; do
         os="${platform%/*}"
         arch="${platform#*/}"
-        output="target/bin/${os}/${arch}/tunnel-proxy"
+        output="target/bin/tunnel-proxy_${os}_${arch}"
         if [ "$os" = "windows" ]; then
             output="${output}.exe"
         fi
