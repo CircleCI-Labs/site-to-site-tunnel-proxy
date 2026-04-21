@@ -10,13 +10,16 @@ import (
 type Route struct {
 	TargetAddr   string // dial address, e.g. "domain.example.com:443"
 	TargetDomain string // TLS SNI / display name, e.g. "domain.example.com"
-	UseTLS       bool   // true → outer TLS + mTLS client cert; false → plain TCP
+	UseTLS       bool   // true → outer TLS + mTLS client cert (opt-in via tls:// prefix); false → plain TCP
 }
 
 // ParseTunnelFlag parses "HOST[:PORT]=DOMAIN[:PORT]" into a route map entry.
 //
 // LHS port defaults to 443 if absent.
-// RHS port defaults to 443 if absent; port 443 → TLS tunnel, any other → plain TCP.
+// RHS port defaults to 443 if absent. Prefix the RHS with "tls://" to wrap
+// the connection in TLS (e.g. "host=tls://domain:443"). Without the prefix,
+// connections use plain TCP; application-layer encryption (SSH, HTTPS) is
+// handled end-to-end without an outer TLS wrapper.
 func ParseTunnelFlag(s string) (listenKey string, route Route, err error) {
 	lhs, rhs, ok := strings.Cut(s, "=")
 	if !ok {
@@ -33,7 +36,10 @@ func ParseTunnelFlag(s string) (listenKey string, route Route, err error) {
 	}
 	listenKey = net.JoinHostPort(listenHost, listenPort)
 
-	// RHS: DOMAIN or DOMAIN:PORT
+	// RHS: [tls://]DOMAIN[:PORT]
+	useTLS := strings.HasPrefix(rhs, "tls://")
+	rhs = strings.TrimPrefix(rhs, "tls://")
+
 	targetHost, targetPort := rhs, "443"
 	if h, p, e := net.SplitHostPort(rhs); e == nil {
 		targetHost, targetPort = h, p
@@ -42,7 +48,7 @@ func ParseTunnelFlag(s string) (listenKey string, route Route, err error) {
 	route = Route{
 		TargetAddr:   net.JoinHostPort(targetHost, targetPort),
 		TargetDomain: targetHost,
-		UseTLS:       targetPort == "443",
+		UseTLS:       useTLS,
 	}
 	return listenKey, route, nil
 }
