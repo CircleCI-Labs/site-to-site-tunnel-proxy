@@ -13,23 +13,23 @@ func TestParseTunnelFlag(t *testing.T) {
 		wantErr   bool
 	}{
 		{
-			name:    "HTTPS: host only both sides",
-			input:   "ghe.acmecorp.dev=vcs.cust-abc.circleci-tunnel.com",
+			name:    "plain TCP: host only both sides (no tls:// prefix)",
+			input:   "ghe.acmecorp.dev=vcs.cust-abc.example.com",
 			wantKey: "ghe.acmecorp.dev:443",
 			wantRoute: Route{
-				TargetAddr:   "vcs.cust-abc.circleci-tunnel.com:443",
-				TargetDomain: "vcs.cust-abc.circleci-tunnel.com",
-				UseTLS:       true,
+				TargetAddr:   "vcs.cust-abc.example.com:443",
+				TargetDomain: "vcs.cust-abc.example.com",
+				UseTLS:       false,
 			},
 		},
 		{
-			name:    "SSH: explicit ports both sides",
-			input:   "ghe.acmecorp.dev:22=vcs-ssh.cust-abc.circleci-tunnel.com:443",
+			name:    "plain TCP: SSH explicit ports (no tls:// prefix)",
+			input:   "ghe.acmecorp.dev:22=vcs-ssh.cust-abc.example.com:443",
 			wantKey: "ghe.acmecorp.dev:22",
 			wantRoute: Route{
-				TargetAddr:   "vcs-ssh.cust-abc.circleci-tunnel.com:443",
-				TargetDomain: "vcs-ssh.cust-abc.circleci-tunnel.com",
-				UseTLS:       true,
+				TargetAddr:   "vcs-ssh.cust-abc.example.com:443",
+				TargetDomain: "vcs-ssh.cust-abc.example.com",
+				UseTLS:       false,
 			},
 		},
 		{
@@ -43,12 +43,32 @@ func TestParseTunnelFlag(t *testing.T) {
 			},
 		},
 		{
-			name:    "LHS port explicit 443",
+			name:    "plain TCP: LHS port 443 does not affect RHS TLS",
 			input:   "ghe.acmecorp.dev:443=vcs.tunnel.com",
 			wantKey: "ghe.acmecorp.dev:443",
 			wantRoute: Route{
 				TargetAddr:   "vcs.tunnel.com:443",
 				TargetDomain: "vcs.tunnel.com",
+				UseTLS:       false,
+			},
+		},
+		{
+			name:    "tls:// prefix enables TLS (no explicit port)",
+			input:   "ghe.acmecorp.dev=tls://vcs.cust-abc.example.com",
+			wantKey: "ghe.acmecorp.dev:443",
+			wantRoute: Route{
+				TargetAddr:   "vcs.cust-abc.example.com:443",
+				TargetDomain: "vcs.cust-abc.example.com",
+				UseTLS:       true,
+			},
+		},
+		{
+			name:    "tls:// prefix enables TLS (explicit port)",
+			input:   "ghe.acmecorp.dev:22=tls://vcs-ssh.cust-abc.example.com:443",
+			wantKey: "ghe.acmecorp.dev:22",
+			wantRoute: Route{
+				TargetAddr:   "vcs-ssh.cust-abc.example.com:443",
+				TargetDomain: "vcs-ssh.cust-abc.example.com",
 				UseTLS:       true,
 			},
 		},
