@@ -172,6 +172,42 @@ func TestE2E_ServeThenCONNECT(t *testing.T) {
 	}
 }
 
+func TestE2E_ServeWildcardMatch(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e in short mode")
+	}
+
+	echoAddr := startTCPEchoServer(t)
+	proxyAddr := startServe(t, "--tunnel", fmt.Sprintf("*.acmecorp.dev:8080=%s", echoAddr))
+
+	conn, err := net.Dial("tcp", proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	fmt.Fprintf(conn, "CONNECT foo.acmecorp.dev:8080 HTTP/1.1\r\nHost: foo.acmecorp.dev:8080\r\n\r\n")
+	br := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(br, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("CONNECT got %d", resp.StatusCode)
+	}
+
+	msg := []byte("e2e wildcard test")
+	conn.Write(msg) //nolint:errcheck
+	buf := make([]byte, 64)
+	n, err := br.Read(buf)
+	if err != nil {
+		t.Fatalf("echo: %v", err)
+	}
+	if string(buf[:n]) != "e2e wildcard test" {
+		t.Errorf("got %q", buf[:n])
+	}
+}
+
 func TestE2E_ServeRejectsUnknownHost(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e in short mode")
