@@ -13,7 +13,7 @@ import (
 type ConnectCmd struct {
 	Cert   string   `help:"mTLS client certificate file (optional)."`
 	Key    string   `help:"mTLS client key file (optional)."`
-	Tunnel []string `required:"" help:"HOST[:PORT]=DOMAIN[:PORT] mapping."`
+	Tunnel []string `required:"" help:"HOST[:PORT]=DOMAIN[:PORT] mapping. Leading '*.' on LHS enables wildcard subdomain matching."`
 	Target string   `arg:"" help:"host:port to connect to."`
 }
 
@@ -32,17 +32,16 @@ func (c *ConnectCmd) Run() error {
 }
 
 // connectToTarget dials the tunnel endpoint for the given target and pipes r/w through it.
-func connectToTarget(target string, cert tls.Certificate, routes map[string]Route, rootCAs *x509.CertPool, r io.Reader, w io.Writer) error {
+func connectToTarget(target string, cert tls.Certificate, routes *RouteTable, rootCAs *x509.CertPool, r io.Reader, w io.Writer) error {
 	host, port, splitErr := net.SplitHostPort(target)
 	if splitErr != nil {
 		host = target
 		port = "443"
 	}
-	routeKey := net.JoinHostPort(host, port)
 
-	route, ok := routes[routeKey]
+	route, ok := routes.Lookup(host, port)
 	if !ok {
-		return fmt.Errorf("no tunnel route for %s", routeKey)
+		return fmt.Errorf("no tunnel route for %s", net.JoinHostPort(host, port))
 	}
 
 	remote, err := dialRoute(route, cert, rootCAs)

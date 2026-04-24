@@ -3,22 +3,23 @@ package proxy
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"io"
 	"net"
 	"testing"
 )
 
 func TestConnectCmd_RouteNotFound(t *testing.T) {
-	err := connectToTarget("unknown.host:443", tls.Certificate{}, map[string]Route{}, nil, nil, nil)
+	err := connectToTarget("unknown.host:443", tls.Certificate{}, exactTable(nil), nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for missing route")
 	}
 }
 
 func TestConnectCmd_BareHostDefaultsTo443(t *testing.T) {
-	routes := map[string]Route{
+	routes := exactTable(map[string]Route{
 		"ghe.internal:443": {TargetAddr: "127.0.0.1:1", UseTLS: false},
-	}
+	})
 	err := connectToTarget("ghe.internal", tls.Certificate{}, routes, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected dial error, got nil")
@@ -29,9 +30,9 @@ func TestConnectCmd_BareHostDefaultsTo443(t *testing.T) {
 }
 
 func TestConnectCmd_ConnectionRefused(t *testing.T) {
-	routes := map[string]Route{
+	routes := exactTable(map[string]Route{
 		"ghe.internal:443": {TargetAddr: "127.0.0.1:1", UseTLS: false},
-	}
+	})
 	err := connectToTarget("ghe.internal:443", tls.Certificate{}, routes, nil, nil, nil)
 	if err == nil {
 		t.Fatal("refused connection produced no error")
@@ -55,9 +56,9 @@ func TestConnectCmd_PlainTCPConnect(t *testing.T) {
 		conn.Write([]byte(msg)) //nolint:errcheck
 	}()
 
-	routes := map[string]Route{
+	routes := exactTable(map[string]Route{
 		"internal.host:8080": {TargetAddr: ln.Addr().String(), UseTLS: false},
-	}
+	})
 
 	pr, pw := io.Pipe()
 	defer pr.Close()
@@ -82,9 +83,9 @@ func TestConnectCmd_TLSConnectWithoutClientCert(t *testing.T) {
 	endpointCAPool := x509.NewCertPool()
 	endpointCAPool.AddCert(endpointCACert)
 
-	routes := map[string]Route{
+	routes := exactTable(map[string]Route{
 		"ghe.internal:443": {TargetAddr: endpointAddr, TargetDomain: "127.0.0.1", UseTLS: true},
-	}
+	})
 
 	stdinR, stdinW := io.Pipe()
 	stdoutR, stdoutW := io.Pipe()
@@ -118,9 +119,9 @@ func TestConnectCmd_TLSConnectWithMTLS(t *testing.T) {
 	endpointCAPool := x509.NewCertPool()
 	endpointCAPool.AddCert(endpointCACert)
 
-	routes := map[string]Route{
+	routes := exactTable(map[string]Route{
 		"ghe.internal:443": {TargetAddr: endpointAddr, TargetDomain: "127.0.0.1", UseTLS: true},
-	}
+	})
 
 	stdinR, stdinW := io.Pipe()
 	stdoutR, stdoutW := io.Pipe()
@@ -145,4 +146,46 @@ func TestConnectCmd_TLSConnectWithMTLS(t *testing.T) {
 	}
 
 	stdinW.Close()
+}
+
+// TestConnectCmd_WildcardMatch exercises connectToTarget through a wildcard route.
+func TestConnectCmd_WildcardMatch(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	want := "wildcard connect payload"
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		conn.Write([]byte(want)) //nolint:errcheck
+	}()
+
+	routes, err := ParseTunnelFlags([]string{
+		fmt.Sprintf("*.acmecorp.dev:8080=%s", ln.Addr().String()),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pr, pw := io.Pipe()
+	defer pr.Close()
+
+	go func() {
+		connectToTarget("alpha.acmecorp.dev:8080", tls.Certificate{}, routes, nil, pr, pw) //nolint:errcheck
+	}()
+
+	buf := make([]byte, 64)
+	n, err := pr.Read(buf)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(buf[:n]) != want {
+		t.Errorf("got %q, want %q", buf[:n], want)
+	}
 }

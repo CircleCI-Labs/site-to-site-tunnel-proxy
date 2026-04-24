@@ -25,6 +25,32 @@ tunnel-proxy serve \
 
 The `--tunnel` flag maps internal hostnames to tunnel domains. Port 443 on the right-hand side enables TLS with mTLS, if certificats are specified.
 
+#### Wildcard subdomains
+
+Prefix the LHS with `*.` to match any subdomain of a suffix, at any depth. The
+RHS must be a single fixed target (no `*` allowed). Exact routes always take
+precedence over wildcard routes.
+
+```
+tunnel-proxy serve \
+  --cert /tmp/client.crt \
+  --key /tmp/client.key \
+  --tunnel '*.acmecorp.dev=tls://customer-abc.example.com' \
+  --tunnel 'ghe.acmecorp.dev=tls://vcs.example.com'
+```
+
+With the example above:
+
+- `CONNECT ghe.acmecorp.dev:443` matches the exact entry → `vcs.example.com:443`.
+- `CONNECT foo.acmecorp.dev:443` and `CONNECT a.b.acmecorp.dev:443` match the wildcard → `customer-abc.example.com:443`.
+- `CONNECT acmecorp.dev:443` (bare apex) does not match.
+
+Wildcards are port-scoped: `*.acmecorp.dev=…` only matches port 443, and
+`*.acmecorp.dev:22=…` only matches port 22. TLS SNI on the outer connection
+uses the rewritten RHS hostname; the inner TLS session between the client and
+destination is untouched, so the destination server still sees the original
+hostname via inner SNI / Host header.
+
 ### connect
 
 Pipe stdin/stdout through a tunnel connection. Used as an SSH `ProxyCommand` for git-over-SSH.

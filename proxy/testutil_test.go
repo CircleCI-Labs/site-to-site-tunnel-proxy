@@ -206,6 +206,14 @@ func startTLSEndpoint(t *testing.T) (addr string, serverCA *x509.Certificate) {
 	return ln.Addr().String(), serverCA
 }
 
+// exactTable builds a RouteTable from a literal exact-match map (test-only).
+func exactTable(m map[string]Route) *RouteTable {
+	if m == nil {
+		m = map[string]Route{}
+	}
+	return &RouteTable{exact: m}
+}
+
 // startProxy starts an HTTP server for the given Server and returns its address.
 func startProxy(t *testing.T, srv *Server) string {
 	t.Helper()

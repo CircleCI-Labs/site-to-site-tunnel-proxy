@@ -13,7 +13,7 @@ import (
 type ServeCmd struct {
 	Cert   string   `help:"mTLS client certificate file (optional)."`
 	Key    string   `help:"mTLS client key file (optional)."`
-	Tunnel []string `required:"" help:"HOST[:PORT]=DOMAIN[:PORT] mapping."`
+	Tunnel []string `required:"" help:"HOST[:PORT]=DOMAIN[:PORT] mapping. Leading '*.' on LHS enables wildcard subdomain matching."`
 	Listen string   `default:"127.0.0.1:4140" help:"Listen address."`
 }
 
@@ -38,15 +38,23 @@ func (s *ServeCmd) Run() error {
 		return err
 	}
 	log.Printf("listening on %s", ln.Addr())
-	for key, route := range routes {
+	logRoutes(routes)
+	return http.Serve(ln, srv)
+}
+
+// logRoutes prints the configured exact and wildcard routes.
+func logRoutes(routes *RouteTable) {
+	for key, route := range routes.Exact() {
 		log.Printf("  %s → %s (tls=%v)", key, route.TargetAddr, route.UseTLS)
 	}
-	return http.Serve(ln, srv)
+	for _, w := range routes.Wildcards() {
+		log.Printf("  %s:%s → %s (tls=%v) [wildcard]", w.Pattern, w.Port, w.Route.TargetAddr, w.Route.UseTLS)
+	}
 }
 
 // Server is an HTTP CONNECT proxy that routes traffic through tunnel endpoints.
 type Server struct {
-	Routes     map[string]Route
+	Routes     *RouteTable
 	ClientCert tls.Certificate
 	// RootCAs overrides the system cert pool for outer TLS connections.
 	// nil means use the system pool
@@ -65,9 +73,8 @@ func (srv *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		connectHost = r.Host
 		connectPort = "443"
 	}
-	routeKey := net.JoinHostPort(connectHost, connectPort)
 
-	route, ok := srv.Routes[routeKey]
+	route, ok := srv.Routes.Lookup(connectHost, connectPort)
 	if !ok {
 		http.Error(w, "target not allowed", http.StatusForbidden)
 		return
@@ -94,7 +101,7 @@ func (srv *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")) //nolint:errcheck
-	log.Printf("tunnel established: %s → %s", routeKey, route.TargetAddr)
+	log.Printf("tunnel established: %s → %s", net.JoinHostPort(connectHost, connectPort), route.TargetAddr)
 
 	pipe(client, remote)
 }

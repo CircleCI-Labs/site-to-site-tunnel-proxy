@@ -23,9 +23,9 @@ func TestServeCmd_Integration(t *testing.T) {
 	}
 
 	addr := startProxy(t, &Server{
-		Routes: map[string]Route{
+		Routes: exactTable(map[string]Route{
 			"ghe.internal:443": {TargetAddr: endpointAddr, TargetDomain: "127.0.0.1", UseTLS: true},
-		},
+		}),
 		ClientCert: cert,
 		RootCAs:    endpointCAPool,
 	})
@@ -66,9 +66,9 @@ func TestConnectCmd_Integration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	routes := map[string]Route{
+	routes := exactTable(map[string]Route{
 		"ghe.internal:443": {TargetAddr: endpointAddr, TargetDomain: "127.0.0.1", UseTLS: true},
-	}
+	})
 
 	stdinR, stdinW := io.Pipe()
 	stdoutR, stdoutW := io.Pipe()
