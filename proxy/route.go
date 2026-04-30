@@ -7,10 +7,12 @@ import (
 	"strings"
 )
 
-// wildcardPrefix is the only supported wildcard form on the LHS of a tunnel
-// flag: a leading "*." followed by at least one domain label. Any subdomain
-// of the following suffix matches, at any depth.
-const wildcardPrefix = "*."
+// wildcardPrefix is the only supported wildcard character on the LHS of a
+// tunnel flag: a leading "*" followed by a non-empty suffix. The suffix may
+// start with "." (subdomain wildcard, e.g. "*.acmecorp.dev") or with another
+// character (label-prefix wildcard, e.g. "*-eu.acmecorp.dev"). Any hostname
+// that ends with the suffix and is longer than the suffix matches.
+const wildcardPrefix = "*"
 
 // Route describes how to reach one upstream via the proxy.
 type Route struct {
@@ -22,8 +24,9 @@ type Route struct {
 // Entry is a parsed --tunnel flag, either an exact or a wildcard route.
 //
 // For exact entries (Wildcard=false) Key holds "host:port". For wildcard
-// entries (Wildcard=true) Suffix holds the match suffix with a leading
-// dot (e.g. ".acmecorp.dev") and Port holds the LHS port.
+// entries (Wildcard=true) Suffix holds the match suffix (e.g. ".acmecorp.dev"
+// for subdomain wildcards or "-eu.acmecorp.dev" for label-prefix wildcards)
+// and Port holds the LHS port.
 type Entry struct {
 	Wildcard bool
 	Key      string
@@ -146,11 +149,12 @@ func (t *RouteTable) addWildcard(suffix, port string, r Route, pattern string) e
 //
 // LHS port defaults to 443 if absent.
 //
-// A leading "*." on the LHS marks a wildcard entry. The wildcard matches any
-// subdomain of the following suffix at any depth (e.g. "*.acmecorp.dev"
-// matches both "foo.acmecorp.dev" and "a.b.acmecorp.dev" but not the bare
-// apex "acmecorp.dev"). Only a single leading "*." is supported; "*" may not
-// appear elsewhere on the LHS, and may not appear on the RHS.
+// A leading "*" on the LHS marks a wildcard entry. The wildcard matches any
+// hostname that ends with the suffix and is longer than the suffix (e.g.
+// "*.acmecorp.dev" matches "foo.acmecorp.dev" and "a.b.acmecorp.dev" but not
+// the bare apex "acmecorp.dev"; "*-eu.acmecorp.dev" matches "prod-eu.acmecorp.dev").
+// Only a single leading "*" is supported; "*" may not appear elsewhere on the
+// LHS, and may not appear on the RHS.
 //
 // RHS port defaults to 443 if absent. Prefix the RHS with "tls://" to wrap
 // the connection in TLS (e.g. "host=tls://domain:443"). Without the prefix,
@@ -206,7 +210,7 @@ func ParseTunnelFlag(s string) (Entry, error) {
 
 	if !isWildcard {
 		if strings.Contains(listenHost, "*") {
-			return Entry{}, fmt.Errorf("wildcard must be a leading '*.' on LHS in %q", s)
+			return Entry{}, fmt.Errorf("wildcard '*' must be at the start of LHS in %q", s)
 		}
 		return Entry{
 			Wildcard: false,
@@ -215,16 +219,13 @@ func ParseTunnelFlag(s string) (Entry, error) {
 		}, nil
 	}
 
-	// Wildcard path: suffix must start with "." and contain no further "*".
+	// Wildcard path: suffix must be non-empty (not bare "*" or "*.") and contain no further "*".
 	suffix := strings.TrimPrefix(listenHost, "*")
 	if suffix == "" || suffix == "." {
-		return Entry{}, fmt.Errorf("wildcard must include a domain after '*.' in %q", s)
+		return Entry{}, fmt.Errorf("wildcard must include a domain suffix after '*' in %q", s)
 	}
-	if !strings.HasPrefix(suffix, ".") {
-		return Entry{}, fmt.Errorf("wildcard prefix must be '*.' in %q", s)
-	}
-	if strings.Contains(suffix[1:], "*") {
-		return Entry{}, fmt.Errorf("only a single leading '*.' is supported in %q", s)
+	if strings.Contains(suffix, "*") {
+		return Entry{}, fmt.Errorf("only a single leading '*' is supported in %q", s)
 	}
 	return Entry{
 		Wildcard: true,
@@ -251,7 +252,7 @@ func ParseTunnelFlags(flags []string) (*RouteTable, error) {
 			}
 			continue
 		}
-		pattern := wildcardPrefix + strings.TrimPrefix(e.Suffix, ".")
+		pattern := "*" + e.Suffix
 		if err := t.addWildcard(e.Suffix, e.Port, e.Route, pattern); err != nil {
 			return nil, fmt.Errorf("--tunnel: %w", err)
 		}

@@ -162,6 +162,20 @@ func TestParseTunnelFlag(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:  "wildcard: label-prefix *- style",
+			input: "*-eu.svc.foo.com=tls://target.tunnel.com:443",
+			want: Entry{
+				Wildcard: true,
+				Suffix:   "-eu.svc.foo.com",
+				Port:     "443",
+				Route: Route{
+					TargetAddr:   "target.tunnel.com:443",
+					TargetDomain: "target.tunnel.com",
+					UseTLS:       true,
+				},
+			},
+		},
 
 		// ---- error cases ----
 
@@ -172,10 +186,10 @@ func TestParseTunnelFlag(t *testing.T) {
 		{name: "just equals", input: "=", wantErr: "empty LHS or RHS"},
 
 		{name: "wildcard on RHS rejected", input: "*.acmecorp.dev=*.tunnel.com", wantErr: "wildcard not supported on RHS"},
-		{name: "star alone on LHS", input: "*=vcs.tunnel.com", wantErr: "wildcard must be a leading '*.'"},
-		{name: "star dot alone on LHS", input: "*.=vcs.tunnel.com", wantErr: "domain after '*.'"},
-		{name: "star not leading", input: "ghe-*.internal=vcs.tunnel.com", wantErr: "wildcard must be a leading '*.'"},
-		{name: "multiple stars", input: "*.*.acmecorp.dev=vcs.tunnel.com", wantErr: "only a single leading '*.'"},
+		{name: "star alone on LHS", input: "*=vcs.tunnel.com", wantErr: "wildcard must include a domain suffix after"},
+		{name: "star dot alone on LHS", input: "*.=vcs.tunnel.com", wantErr: "domain suffix after"},
+		{name: "star not leading", input: "ghe-*.internal=vcs.tunnel.com", wantErr: "wildcard '*' must be at the start"},
+		{name: "multiple stars", input: "*.*.acmecorp.dev=vcs.tunnel.com", wantErr: "only a single leading '*'"},
 
 		// ---- malformed host:port on either side ----
 
@@ -374,6 +388,36 @@ func TestRouteTable_Lookup(t *testing.T) {
 			}
 			if ok && r.TargetAddr != tc.wantAddr {
 				t.Errorf("target: got %q, want %q", r.TargetAddr, tc.wantAddr)
+			}
+		})
+	}
+}
+
+func TestRouteTable_LookupLabelPrefix(t *testing.T) {
+	rt, err := ParseTunnelFlags([]string{
+		"*-eu.svc.foo.com=tls://target.tunnel.com:443",
+	})
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	cases := []struct {
+		name       string
+		host, port string
+		wantOK     bool
+	}{
+		{name: "matches label-prefix", host: "prod-eu.svc.foo.com", port: "443", wantOK: true},
+		{name: "matches another label", host: "us-eu.svc.foo.com", port: "443", wantOK: true},
+		{name: "bare suffix no match", host: "-eu.svc.foo.com", port: "443", wantOK: false},
+		{name: "different suffix no match", host: "eu.svc.foo.com", port: "443", wantOK: false},
+		{name: "wrong port no match", host: "prod-eu.svc.foo.com", port: "80", wantOK: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, ok := rt.Lookup(tc.host, tc.port)
+			if ok != tc.wantOK {
+				t.Fatalf("ok: got %v, want %v", ok, tc.wantOK)
 			}
 		})
 	}
